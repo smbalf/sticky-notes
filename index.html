@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sticky Notes</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #222323;
+            --text: #f0f6f0;
+            --note-bg: #2a2b2b;
+            --note-hover: #2e2f2f;
+            --note-active: #323434;
+            --accent: #3a3b3b;
+            --delete: #5c3737;
+            --grid-size: 80px;
+            --grid-dot: #3a3b3b;
+            --check: #4a4a4b;
+        }
+
+        /* --- ENHANCEMENT: Light Mode Theme --- */
+        body.light-mode {
+            --bg: #f4f4f5;
+            --text: #18181b;
+            --note-bg: #ffffff;
+            --note-hover: #fafafa;
+            --note-active: #ffffff;
+            --accent: #e4e4e7;
+            --delete: #fee2e2;
+            --grid-dot: #d4d4d8;
+            --check: #a1a1aa;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans JP', 'Hiragino Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            overflow: hidden;
+            position: relative;
+            height: 100vh;
+            user-select: none;
+            cursor: default;
+            transition: background 0.3s, color 0.3s;
+        }
+        
+        body.panning {
+            cursor: grabbing;
+        }
+
+        #canvas {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            overflow: auto;
+            background-image: 
+                radial-gradient(circle, var(--grid-dot) 1px, transparent 1px);
+            background-size: var(--grid-size) var(--grid-size);
+            background-position: calc(var(--grid-size) / 2) calc(var(--grid-size) / 2);
+            min-width: 400vw;
+            min-height: 400vh;
+            transition: background-image 0.3s;
+        }
+
+        #canvas.hide-grid {
+            background-image: none;
+        }
+        
+        #canvas::-webkit-scrollbar { width: 10px; height: 10px; }
+        #canvas::-webkit-scrollbar-track { background: transparent; }
+        #canvas::-webkit-scrollbar-thumb { background-color: var(--accent); border-radius: 5px; border: 2px solid var(--bg); }
+        #canvas::-webkit-scrollbar-thumb:hover { background-color: #4a4a4b; }
+        body.light-mode #canvas::-webkit-scrollbar-thumb:hover { background-color: #a1a1aa; }
+
+        .note {
+            position: absolute;
+            background: var(--note-bg);
+            border-top: 2px solid var(--accent);
+            border-radius: 4px;
+            cursor: move;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        
+        body.light-mode .note {
+             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .note-spawn { animation: spawn 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        @keyframes spawn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+        .note:hover {
+            background: var(--note-hover);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+            transform: translateY(-2px);
+        }
+        body.light-mode .note:hover { box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15); }
+
+        .note.active {
+            background: var(--note-active);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 2px var(--accent);
+            z-index: 1000;
+        }
+         body.light-mode .note.active { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), 0 0 0 2px var(--accent); }
+
+        .note.dragging { opacity: 0.8; transition: none; cursor: grabbing; }
+
+        .note-editor {
+            position: absolute;
+            top: 16px; left: 16px; right: 16px; bottom: 16px;
+            background: transparent; color: var(--text);
+            font-size: 14px; line-height: 1.8; outline: none;
+            font-family: inherit; word-wrap: break-word;
+            overflow-y: auto; cursor: text; user-select: text;
+            padding-right: 12px;
+        }
+        .note-editor:focus { outline: none; }
+        
+        .note-editor::-webkit-scrollbar { width: 8px; }
+        .note-editor::-webkit-scrollbar-track { background: transparent; }
+        .note-editor::-webkit-scrollbar-thumb { background-color: var(--accent); border-radius: 4px; }
+        .note-editor::-webkit-scrollbar-thumb:hover { background-color: #4a4a4b; }
+        body.light-mode .note-editor::-webkit-scrollbar-thumb:hover { background-color: #a1a1aa; }
+
+
+        /* --- FIX: More robust checkbox implementation --- */
+        .note-editor ul { margin: 0; padding-left: 20px; list-style-type: none; }
+        .note-editor li { position: relative; padding-left: 8px; margin-bottom: 4px; }
+        .note-editor li::before { content: '•'; position: absolute; left: -12px; color: var(--accent); }
+        .note-editor li[data-type="checkbox"]::before { content: '☐'; left: -14px; font-size: 14px; cursor: pointer; }
+        .note-editor li[data-type="checkbox"].checked::before { content: '☒'; }
+        .note-editor li[data-type="checkbox"].checked { opacity: 0.7; text-decoration: line-through; }
+
+        /* --- ENHANCEMENT: Re-implementing font sizes --- */
+        .note-editor .font-small { font-size: 12px; }
+        .note-editor .font-large { font-size: 16px; }
+        .note-editor .font-xlarge { font-size: 18px; }
+
+        .resize-handle { position: absolute; opacity: 0; transition: opacity 0.2s; }
+        .note:hover .resize-handle { opacity: 1; }
+        .resize-handle-right { right: 0; top: 0; width: 8px; height: 100%; cursor: ew-resize; }
+        .resize-handle-bottom { bottom: 0; left: 0; width: 100%; height: 8px; cursor: ns-resize; }
+        .resize-handle-corner { right: 0; bottom: 0; width: 12px; height: 12px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, var(--accent) 50%); opacity: 0; transition: opacity 0.2s; }
+        .note:hover .resize-handle-corner { opacity: 0.5; }
+
+        .delete-btn {
+            position: absolute; top: 4px; right: 4px; width: 24px; height: 24px;
+            background: transparent; border: none; color: var(--text); cursor: pointer;
+            opacity: 0; transition: all 0.2s; font-size: 20px; line-height: 1;
+            border-radius: 4px; z-index: 10; display: flex; align-items: center; justify-content: center;
+        }
+
+        .note:hover .delete-btn { opacity: 0.5; }
+        .delete-btn:hover { opacity: 1; background: var(--delete); }
+
+        .controls {
+            position: fixed; top: 20px; right: 20px; display: flex;
+            gap: 12px; z-index: 2000; background: var(--note-bg);
+            padding: 12px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            transition: background 0.3s, box-shadow 0.3s;
+        }
+        body.light-mode .controls { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); }
+
+
+        .control-btn {
+            background: var(--accent); border: none; color: var(--text); padding: 8px 16px;
+            border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;
+            font-family: inherit;
+        }
+        .control-btn:hover { background: #454646; transform: translateY(-1px); }
+        body.light-mode .control-btn:hover { background: #d4d4d8; }
+
+
+        .format-toolbar {
+            position: fixed; background: var(--note-bg); border-radius: 6px; padding: 6px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); display: none; z-index: 3000; gap: 4px;
+            transition: background 0.3s, box-shadow 0.3s;
+        }
+        body.light-mode .format-toolbar { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); }
+
+        .format-toolbar.visible { display: flex; }
+        .format-btn { background: var(--accent); border: none; color: var(--text); padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.2s; min-width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; }
+        .format-btn:hover { background: #454646; }
+        body.light-mode .format-btn:hover { background: #d4d4d8; }
+        .format-btn.active { background: #505151; }
+        body.light-mode .format-btn.active { background: #c1c1c4; }
+        .format-btn.bold { font-weight: bold; } .format-btn.italic { font-style: italic; }
+
+        .instructions {
+            position: fixed; bottom: 20px; left: 20px; font-size: 11px; color: #888;
+            line-height: 1.6; background: rgba(34, 35, 35, 0.9); padding: 12px;
+            border-radius: 6px; max-width: 250px;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s, background 0.3s;
+            transform-origin: bottom left; backdrop-filter: blur(5px);
+        }
+        body.light-mode .instructions { background: rgba(255, 255, 255, 0.9); color: #52525b; }
+
+
+        .instructions.hidden { transform: scale(0.95) translateY(20px); opacity: 0; pointer-events: none; }
+        .instructions kbd { background: var(--accent); padding: 2px 6px; border-radius: 4px; margin: 0 2px; font-family: monospace; color: var(--text); transition: background 0.3s, color 0.3s;}
+
+        .help-toggle {
+            position: fixed; bottom: 20px; left: 20px; width: 32px; height: 32px;
+            background: var(--accent); border: none; border-radius: 6px; color: var(--text);
+            cursor: pointer; font-size: 16px; line-height: 1; transition: all 0.2s;
+            z-index: 2001; opacity: 0.6;
+        }
+
+        .help-toggle:hover { opacity: 1; transform: scale(1.1); }
+        .help-toggle.active { background: #454646; }
+        body.light-mode .help-toggle.active { background: #d4d4d8; }
+
+        .note::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAMAAAAp4XiDAAAAUVBMVEWFhYWDg4N3d3dtbW17e3t1dXVpaWl schizophreniaborderline personality disorderdysthymia'); opacity: 0.02; pointer-events: none; }
+        body.light-mode .note::before { opacity: 0.05; }
+    </style>
+</head>
+<body>
+
+    <div id="canvas"></div>
+
+    <div class="controls">
+        <button class="control-btn" id="themeToggle" title="Toggle light/dark theme">Light Mode</button>
+        <button class="control-btn" id="toggleGrid">Hide Grid</button>
+        <button class="control-btn" id="clearAll" title="Permanently delete all notes">Clear All</button>
+    </div>
+
+    <div class="format-toolbar" id="formatToolbar">
+        <button class="format-btn bold" data-command="bold" title="Bold (Ctrl+B)">B</button>
+        <button class="format-btn italic" data-command="italic" title="Italic (Ctrl+I)">I</button>
+        <button class="format-btn" data-command="font-small" title="Small Font">S</button>
+        <button class="format-btn" data-command="font-large" title="Large Font">L</button>
+        <button class="format-btn" data-command="font-xlarge" title="Extra Large Font">XL</button>
+    </div>
+
+    <button class="help-toggle" id="helpToggle" title="Toggle Help">?</button>
+    
+    <div class="instructions hidden" id="instructions">
+        <strong>Instructions:</strong><br>
+        <kbd>Double-click</kbd> Create note<br>
+        <kbd>Drag</kbd> Move note<br>
+        <kbd>ESC</kbd> Deselect<br>
+        <kbd>DEL</kbd> Delete selected<br>
+        <kbd>Shift + Drag</kbd> Create sized note<br>
+        <kbd>Space + Drag</kbd> Pan canvas<br>
+        <br>
+        <strong>Formatting (select text):</strong><br>
+        <kbd>Ctrl/Cmd + B</kbd> Bold<br>
+        <kbd>Ctrl/Cmd + I</kbd> Italic<br>
+        <kbd>- then Space</kbd> Bullet point<br>
+        <kbd>[] then Space</kbd> Checkbox<br>
+    </div>
+
+    <script>
+        class StickyNotesApp {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.notes = [];
+                this.activeNote = null;
+                this.gridSize = 80;
+                this.isDragging = false;
+                this.isResizing = false;
+                this.dragOffset = { x: 0, y: 0 };
+                this.noteIdCounter = 0;
+                
+                this.shiftPressed = false;
+                this.spacePressed = false;
+                this.isPanning = false;
+                this.panStart = { x: 0, y: 0};
+                this.createMode = false;
+                this.createStart = null;
+                this.tempNoteElement = null;
+
+                this.helpVisible = false;
+                this.gridVisible = true;
+                this.formatToolbar = document.getElementById('formatToolbar');
+                this.currentEditor = null;
+
+                this.init();
+            }
+
+            init() {
+                this.canvas.addEventListener('dblclick', this.handleCanvasDoubleClick.bind(this));
+                this.canvas.addEventListener('mousedown', this.handleCanvasMouseDown.bind(this));
+                
+                document.addEventListener('mousemove', this.handleDocumentMouseMove.bind(this));
+                document.addEventListener('mouseup', this.handleDocumentMouseUp.bind(this));
+                document.addEventListener('keydown', this.handleKeyDown.bind(this));
+                document.addEventListener('keyup', this.handleKeyUp.bind(this));
+                
+                document.addEventListener('selectionchange', this.handleSelectionChange.bind(this));
+
+                this.initControls();
+                this.loadNotes();
+                this.loadTheme();
+
+                this.canvas.scrollLeft = (this.canvas.scrollWidth - this.canvas.clientWidth) / 2;
+                this.canvas.scrollTop = (this.canvas.scrollHeight - this.canvas.clientHeight) / 2;
+            }
+
+            initControls() {
+                const helpToggle = document.getElementById('helpToggle');
+                const instructions = document.getElementById('instructions');
+                helpToggle.addEventListener('click', () => {
+                    this.helpVisible = !this.helpVisible;
+                    instructions.classList.toggle('hidden', !this.helpVisible);
+                    helpToggle.classList.toggle('active', this.helpVisible);
+                });
+
+                document.getElementById('toggleGrid').addEventListener('click', (e) => {
+                    this.gridVisible = !this.gridVisible;
+                    this.canvas.classList.toggle('hide-grid');
+                    e.target.textContent = this.gridVisible ? 'Hide Grid' : 'Show Grid';
+                });
+
+                document.getElementById('clearAll').addEventListener('click', () => {
+                    if (confirm('Clear all notes? This cannot be undone.')) this.clearAll();
+                });
+
+                document.getElementById('themeToggle').addEventListener('click', this.toggleTheme.bind(this));
+
+                this.formatToolbar.addEventListener('mousedown', (e) => e.preventDefault());
+                document.querySelectorAll('.format-btn').forEach(btn => {
+                    btn.addEventListener('click', () => this.applyFormat(btn.dataset.command));
+                });
+            }
+
+            handleDocumentMouseMove(e) {
+                if (this.isPanning) this.panCanvas(e);
+                if (this.createMode) this.resizeTempNote(e);
+                if (this.isDragging) this.dragNote(e);
+                if (this.isResizing) this.resizeNote(e);
+            }
+
+            handleDocumentMouseUp() {
+                if (this.createMode) this.finalizeTempNote();
+                document.body.classList.remove('panning');
+                this.isPanning = false;
+                this.isDragging = false;
+                this.isResizing = false;
+                if (this.activeNote) this.activeNote.element.classList.remove('dragging');
+            }
+
+            handleCanvasMouseDown(e) {
+                if (this.spacePressed) {
+                    this.isPanning = true;
+                    this.panStart.x = e.clientX; this.panStart.y = e.clientY;
+                    document.body.classList.add('panning');
+                    e.preventDefault();
+                } else if (this.shiftPressed && e.target === this.canvas) {
+                    this.startCreateMode(e);
+                } else if (e.target === this.canvas) {
+                    this.deselectAll();
+                }
+            }
+            
+            panCanvas(e) {
+                const dx = e.clientX - this.panStart.x;
+                const dy = e.clientY - this.panStart.y;
+                this.canvas.scrollLeft -= dx; this.canvas.scrollTop -= dy;
+                this.panStart.x = e.clientX; this.panStart.y = e.clientY;
+            }
+
+            handleCanvasDoubleClick(e) {
+                if (e.target === this.canvas && !this.shiftPressed) {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left + this.canvas.scrollLeft;
+                    const y = e.clientY - rect.top + this.canvas.scrollTop;
+                    const gridX = Math.round(x / this.gridSize) * this.gridSize;
+                    const gridY = Math.round(y / this.gridSize) * this.gridSize;
+                    this.createNote({ x: gridX, y: gridY });
+                }
+            }
+            
+            startCreateMode(e) {
+                e.preventDefault(); this.createMode = true;
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left + this.canvas.scrollLeft;
+                const y = e.clientY - rect.top + this.canvas.scrollTop;
+                this.createStart = {
+                    x: Math.round(x / this.gridSize) * this.gridSize,
+                    y: Math.round(y / this.gridSize) * this.gridSize
+                };
+                this.tempNoteElement = document.createElement('div');
+                this.tempNoteElement.className = 'note';
+                Object.assign(this.tempNoteElement.style, {
+                    left: `${this.createStart.x}px`, top: `${this.createStart.y}px`,
+                    width: `${this.gridSize}px`, height: `${this.gridSize}px`,
+                    opacity: '0.5', zIndex: this.getMaxZIndex() + 1
+                });
+                this.canvas.appendChild(this.tempNoteElement);
+            }
+
+            resizeTempNote(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const currentX = e.clientX - rect.left + this.canvas.scrollLeft;
+                const currentY = e.clientY - rect.top + this.canvas.scrollTop;
+                const left = Math.min(this.createStart.x, currentX);
+                const top = Math.min(this.createStart.y, currentY);
+                const width = Math.abs(currentX - this.createStart.x);
+                const height = Math.abs(currentY - this.createStart.y);
+                this.tempNoteElement.style.left = `${Math.round(left / this.gridSize) * this.gridSize}px`;
+                this.tempNoteElement.style.top = `${Math.round(top / this.gridSize) * this.gridSize}px`;
+                this.tempNoteElement.style.width = `${Math.max(1, Math.round(width / this.gridSize)) * this.gridSize}px`;
+                this.tempNoteElement.style.height = `${Math.max(1, Math.round(height / this.gridSize)) * this.gridSize}px`;
+            }
+            
+            finalizeTempNote() {
+                const { offsetLeft, offsetTop, offsetWidth, offsetHeight } = this.tempNoteElement;
+                this.canvas.removeChild(this.tempNoteElement);
+                this.createNote({
+                    x: offsetLeft, y: offsetTop,
+                    width: Math.max(1, Math.round(offsetWidth / this.gridSize)),
+                    height: Math.max(1, Math.round(offsetHeight / this.gridSize))
+                });
+                this.createMode = false; this.tempNoteElement = null;
+            }
+
+            handleSelectionChange() {
+                if (document.activeElement?.classList.contains('note-editor')) {
+                    const selection = window.getSelection();
+                    if (selection?.toString().length > 0 && !this.isResizing && !this.isDragging) {
+                        const range = selection.getRangeAt(0);
+                        const rect = range.getBoundingClientRect();
+                        this.formatToolbar.style.left = `${rect.left + rect.width / 2 - this.formatToolbar.offsetWidth / 2}px`;
+                        this.formatToolbar.style.top = `${rect.top - this.formatToolbar.offsetHeight - 8}px`;
+                        this.formatToolbar.classList.add('visible');
+                    } else {
+                        this.formatToolbar.classList.remove('visible');
+                    }
+                } else {
+                    this.formatToolbar.classList.remove('visible');
+                }
+            }
+            
+            handleKeyDown(e) {
+                if (e.key === 'Shift') { this.shiftPressed = true; this.canvas.style.cursor = 'crosshair'; }
+                if (e.key === ' ') {
+                    // --- FIX: Prevent default spacebar action (scrolling) ---
+                    if (!e.target.isContentEditable) {
+                        e.preventDefault();
+                        this.spacePressed = true;
+                        this.canvas.style.cursor = 'grab';
+                    }
+                }
+                if (e.key === 'Escape') this.deselectAll();
+                if (e.key === 'Delete' && this.activeNote && !e.target.isContentEditable) this.deleteNote(this.activeNote);
+
+                if ((e.ctrlKey || e.metaKey) && this.currentEditor) {
+                    if (e.key === 'b') { e.preventDefault(); this.applyFormat('bold'); }
+                    if (e.key === 'i') { e.preventDefault(); this.applyFormat('italic'); }
+                }
+            }
+
+            handleKeyUp(e) {
+                if (e.key === 'Shift') { this.shiftPressed = false; this.canvas.style.cursor = 'default'; }
+                if (e.key === ' ') { this.spacePressed = false; this.canvas.style.cursor = 'default'; }
+            }
+
+            createNote(data) {
+                const note = {
+                    id: data.id || `note-${this.noteIdCounter++}`, x: data.x, y: data.y,
+                    width: data.width || 3, height: data.height || 2,
+                    content: data.content || '', zIndex: data.zIndex || this.getMaxZIndex() + 1
+                };
+                const noteElement = document.createElement('div');
+                noteElement.className = 'note note-spawn';
+                noteElement.id = note.id;
+                Object.assign(noteElement.style, {
+                    left: `${note.x}px`, top: `${note.y}px`,
+                    width: `${note.width * this.gridSize}px`, height: `${note.height * this.gridSize}px`,
+                    zIndex: note.zIndex
+                });
+                noteElement.addEventListener('animationend', () => noteElement.classList.remove('note-spawn'));
+
+                const editor = document.createElement('div');
+                editor.className = 'note-editor';
+                editor.contentEditable = true;
+                editor.innerHTML = note.content;
+                
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'delete-btn';
+                deleteBtn.innerHTML = '×';
+                deleteBtn.onclick = (e) => { e.stopPropagation(); this.deleteNote(note); };
+
+                const resizeRight = document.createElement('div'); resizeRight.className = 'resize-handle resize-handle-right';
+                const resizeBottom = document.createElement('div'); resizeBottom.className = 'resize-handle resize-handle-bottom';
+                const resizeCorner = document.createElement('div'); resizeCorner.className = 'resize-handle resize-handle-corner';
+
+                noteElement.append(editor, deleteBtn, resizeRight, resizeBottom, resizeCorner);
+                this.canvas.appendChild(noteElement);
+                note.element = noteElement; note.editor = editor;
+
+                noteElement.addEventListener('mousedown', (e) => this.handleNoteMouseDown(e, note));
+                editor.addEventListener('keyup', (e) => {
+                    note.content = editor.innerHTML;
+                    if (e.code === 'Space' || e.key === 'Enter') this.processEditorContent(editor);
+                });
+                editor.addEventListener('focus', () => { this.currentEditor = editor; this.selectNote(note); });
+                editor.addEventListener('blur', () => { this.currentEditor = null; this.saveNotes(); });
+                editor.addEventListener('click', (e) => this.handleEditorClick(e, note));
+                editor.addEventListener('mousedown', (e) => e.stopPropagation());
+                
+                resizeRight.addEventListener('mousedown', (e) => this.startResize(e, note, 'horizontal'));
+                resizeBottom.addEventListener('mousedown', (e) => this.startResize(e, note, 'vertical'));
+                resizeCorner.addEventListener('mousedown', (e) => this.startResize(e, note, 'both'));
+                
+                this.notes.push(note);
+                if (!data.id) { this.selectNote(note); editor.focus(); }
+                this.saveNotes();
+                return note;
+            }
+
+            processEditorContent(editor) {
+                const selection = window.getSelection();
+                if (!selection.rangeCount) return;
+                const range = selection.getRangeAt(0);
+                const node = range.startContainer;
+                
+                if(node.nodeType === 3 && node.textContent.match(/^\s*-\s$/)) {
+                    document.execCommand('insertUnorderedList');
+                    node.textContent = node.textContent.replace(/^\s*-\s$/, '');
+                } else if (node.nodeType === 3 && node.textContent.match(/^\s*\[\]\s$/)) {
+                     // --- FIX: Robust checkbox creation ---
+                    document.execCommand('insertUnorderedList');
+                    const listItems = editor.getElementsByTagName('li');
+                    if(listItems.length > 0) {
+                        const newItem = listItems[listItems.length - 1];
+                        if(!newItem.dataset.type) { // Prevent affecting existing items
+                            newItem.dataset.type = 'checkbox';
+                            newItem.innerHTML = newItem.innerHTML.replace('[]', '');
+                            // Set cursor after the checkbox
+                             range.setStart(newItem, 0);
+                             range.collapse(true);
+                             selection.removeAllRanges();
+                             selection.addRange(range);
+                        }
+                    }
+                }
+            }
+
+            handleEditorClick(e, note) {
+                const li = e.target.closest('li[data-type="checkbox"]');
+                if (li) {
+                    const rect = li.getBoundingClientRect();
+                    if (e.clientX < rect.left + 20) {
+                         li.classList.toggle('checked');
+                         note.content = note.editor.innerHTML;
+                         this.saveNotes();
+                    }
+                }
+            }
+            
+            applyFormat(command) {
+                if (!this.currentEditor) return;
+                this.currentEditor.focus();
+                
+                if (command.startsWith('font-')) {
+                    // --- ENHANCEMENT: Font size logic using span wrapping ---
+                    const className = command;
+                    const selection = window.getSelection();
+                    if (!selection.rangeCount) return;
+                    const range = selection.getRangeAt(0);
+                    const selectedText = range.toString();
+                    if (selectedText) {
+                        const span = document.createElement('span');
+                        span.className = className;
+                        span.textContent = selectedText;
+                        range.deleteContents();
+                        range.insertNode(span);
+                    }
+                } else {
+                    document.execCommand(command, false, null);
+                }
+
+                this.notes.find(n => n.editor === this.currentEditor).content = this.currentEditor.innerHTML;
+                this.saveNotes();
+            }
+
+            handleNoteMouseDown(e, note) {
+                if (e.target.isContentEditable || e.target.closest('.resize-handle, .delete-btn')) return;
+                e.preventDefault(); this.selectNote(note);
+                this.isDragging = true; this.activeNote = note;
+                const rect = note.element.getBoundingClientRect();
+                this.dragOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+                note.element.classList.add('dragging');
+            }
+
+            dragNote(e) {
+                const canvasRect = this.canvas.getBoundingClientRect();
+                let newX = e.clientX - canvasRect.left - this.dragOffset.x + this.canvas.scrollLeft;
+                let newY = e.clientY - canvasRect.top - this.dragOffset.y + this.canvas.scrollTop;
+                newX = Math.max(0, Math.round(newX / this.gridSize) * this.gridSize);
+                newY = Math.max(0, Math.round(newY / this.gridSize) * this.gridSize);
+                this.activeNote.element.style.left = `${newX}px`;
+                this.activeNote.element.style.top = `${newY}px`;
+                this.activeNote.x = newX; this.activeNote.y = newY;
+                this.saveNotes();
+            }
+
+            startResize(e, note, direction) {
+                e.preventDefault(); e.stopPropagation();
+                this.isResizing = true; this.activeNote = note;
+                this.resizeDirection = direction;
+                this.resizeStart = {
+                    x: e.clientX, y: e.clientY,
+                    width: note.element.offsetWidth, height: note.element.offsetHeight
+                };
+            }
+
+            resizeNote(e) {
+                if (this.resizeDirection === 'horizontal' || this.resizeDirection === 'both') {
+                    const newWidth = Math.max(this.gridSize, Math.round((this.resizeStart.width + e.clientX - this.resizeStart.x) / this.gridSize) * this.gridSize);
+                    this.activeNote.element.style.width = `${newWidth}px`;
+                    this.activeNote.width = newWidth / this.gridSize;
+                }
+                if (this.resizeDirection === 'vertical' || this.resizeDirection === 'both') {
+                    const newHeight = Math.max(this.gridSize, Math.round((this.resizeStart.height + e.clientY - this.resizeStart.y) / this.gridSize) * this.gridSize);
+                    this.activeNote.element.style.height = `${newHeight}px`;
+                    this.activeNote.height = newHeight / this.gridSize;
+                }
+                this.saveNotes();
+            }
+
+            selectNote(note) { this.deselectAll(); this.activeNote = note; note.element.classList.add('active'); note.zIndex = this.getMaxZIndex() + 1; note.element.style.zIndex = note.zIndex; }
+            deselectAll() { document.querySelectorAll('.note.active').forEach(n => n.classList.remove('active')); this.activeNote = null; }
+            deleteNote(note) { note.element.remove(); this.notes = this.notes.filter(n => n.id !== note.id); this.activeNote = null; this.saveNotes(); }
+            clearAll() { this.notes.forEach(note => note.element.remove()); this.notes = []; this.activeNote = null; this.saveNotes(); }
+            getMaxZIndex() { return this.notes.length > 0 ? Math.max(...this.notes.map(n => n.zIndex || 0)) : 0; }
+
+            saveNotes() {
+                const notesData = this.notes.map(note => ({
+                    id: note.id, x: note.x, y: note.y,
+                    width: note.width, height: note.height,
+                    content: note.content, zIndex: note.zIndex
+                }));
+                localStorage.setItem('stickyNotesApp', JSON.stringify(notesData));
+            }
+            loadNotes() {
+                const savedNotes = localStorage.getItem('stickyNotesApp');
+                if (savedNotes) {
+                    try {
+                        const notesData = JSON.parse(savedNotes);
+                        if (Array.isArray(notesData)) notesData.forEach(noteData => this.createNote(noteData));
+                    } catch(e) { console.error('Failed to load notes:', e); }
+                }
+                this.deselectAll();
+            }
+            toggleTheme() {
+                document.body.classList.toggle('light-mode');
+                const isLight = document.body.classList.contains('light-mode');
+                localStorage.setItem('stickyNotesTheme', isLight ? 'light' : 'dark');
+                document.getElementById('themeToggle').textContent = isLight ? 'Dark Mode' : 'Light Mode';
+            }
+            loadTheme() {
+                const theme = localStorage.getItem('stickyNotesTheme');
+                if (theme === 'light') {
+                    document.body.classList.add('light-mode');
+                    document.getElementById('themeToggle').textContent = 'Dark Mode';
+                }
+            }
+        }
+        const app = new StickyNotesApp();
+    </script>
+</body>
+</html>
