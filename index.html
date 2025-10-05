@@ -3,7 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sticky Notes</title>
+    <title>Sticky Notes - Handsontable</title>
+
+    <!-- DOMPurify for XSS Protection -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+
+    <!-- Handsontable Spreadsheet Library -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css" />
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"></script>
+    
     <style>
         * {
             margin: 0;
@@ -22,19 +30,24 @@
             --grid-size: 40px;
             --grid-dot: #3a3b3b;
             --check: #4a4a4b;
+            --selection-bg: rgba(98, 156, 255, 0.2);
+            --editor-border: #629cff;
+            --checkbox-color: #bbb;
         }
 
-        /* --- ENHANCEMENT: Light Mode Theme --- */
         body.light-mode {
-            --bg: #f4f4f5;
-            --text: #18181b;
-            --note-bg: #ffffff;
+            --bg: #f6f6f6;
+            --text: #222323;
+            --note-bg: #edecec;
             --note-hover: #fafafa;
-            --note-active: #ffffff;
+            --note-active: #f3f3f3;
             --accent: #e4e4e7;
             --delete: #fee2e2;
             --grid-dot: #d4d4d8;
             --check: #a1a1aa;
+            --selection-bg: rgba(98, 156, 255, 0.3);
+            --editor-border: #4b89ff;
+            --checkbox-color: #555;
         }
 
         body {
@@ -79,13 +92,15 @@
 
         .note {
             position: absolute;
-            background: var(--note-bg);
-            border-top: 2px solid var(--accent);
+            background: var(--note-bg-custom, var(--note-bg));
+            border-top: 2px solid var(--accent-custom, var(--accent));
             border-radius: 4px;
             cursor: move;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            overflow: hidden;
+            overflow: visible;
+            display: flex;
+            flex-direction: column;
         }
         
         body.light-mode .note {
@@ -96,68 +111,142 @@
         @keyframes spawn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
         .note:hover {
-            background: var(--note-hover);
+            background: var(--note-hover-custom, var(--note-hover));
             box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
             transform: translateY(-2px);
         }
         body.light-mode .note:hover { box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15); }
 
         .note.active {
-            background: var(--note-active);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 2px var(--accent);
+            background: var(--note-active-custom, var(--note-active));
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 2px var(--accent-custom, var(--accent));
             z-index: 1000;
         }
-         body.light-mode .note.active { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), 0 0 0 2px var(--accent); }
+         body.light-mode .note.active { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), 0 0 0 2px var(--accent-custom, var(--accent)); }
 
         .note.dragging { opacity: 0.8; transition: none; cursor: grabbing; }
 
         .note-editor {
-            position: absolute;
-            top: 16px; left: 16px; right: 16px; bottom: 16px;
-            background: transparent; color: var(--text);
+            flex-grow: 1;
+            padding: 16px;
+            background: transparent; 
+            color: var(--text-custom, var(--text));
             font-size: 14px; line-height: 1.8; outline: none;
             font-family: inherit; word-wrap: break-word;
             overflow-y: auto; cursor: text; user-select: text;
-            padding-right: 12px;
         }
         .note-editor:focus { outline: none; }
         
         .note-editor::-webkit-scrollbar { width: 8px; }
         .note-editor::-webkit-scrollbar-track { background: transparent; }
-        .note-editor::-webkit-scrollbar-thumb { background-color: var(--accent); border-radius: 4px; }
-        .note-editor::-webkit-scrollbar-thumb:hover { background-color: #4a4a4b; }
-        body.light-mode .note-editor::-webkit-scrollbar-thumb:hover { background-color: #a1a1aa; }
-
-
-        /* --- FIX: More robust checkbox implementation --- */
+        .note-editor::-webkit-scrollbar-thumb { background-color: var(--accent-custom, var(--accent)); border-radius: 4px; }
+        
         .note-editor ul { margin: 0; padding-left: 20px; list-style-type: none; }
         .note-editor li { position: relative; padding-left: 8px; margin-bottom: 4px; }
-        .note-editor li::before { content: '•'; position: absolute; left: -12px; color: var(--accent); }
-        .note-editor li[data-type="checkbox"]::before { content: '☐'; left: -14px; font-size: 14px; cursor: pointer; }
-        .note-editor li[data-type="checkbox"].checked::before { content: '☒'; }
-        .note-editor li[data-type="checkbox"].checked { opacity: 0.7; text-decoration: line-through; }
+        .note-editor li::before { content: '•'; position: absolute; left: -12px; color: var(--accent-custom, var(--accent)); }
+        
+        .note-editor li[data-type="checkbox"]::before { 
+            content: '☐'; 
+            left: -14px; 
+            font-size: 14px; 
+            cursor: pointer; 
+            color: var(--checkbox-color);
+            font-weight: 500;
+        }
+        .note-editor li[data-type="checkbox"].checked::before { 
+            content: '☑';
+            color: var(--checkbox-color);
+        }
+        .note-editor li[data-type="checkbox"].checked { 
+            opacity: 0.7;
+            text-decoration: none;
+            position: relative;
+        }
+        .note-editor li[data-type="checkbox"].checked::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            right: 0;
+            height: 1px;
+            background: currentColor;
+            transform: translateY(-1px);
+        }
 
-        /* --- ENHANCEMENT: Re-implementing font sizes --- */
+
         .note-editor .font-small { font-size: 12px; }
         .note-editor .font-large { font-size: 16px; }
         .note-editor .font-xlarge { font-size: 18px; }
 
-        .resize-handle { position: absolute; opacity: 0; transition: opacity 0.2s; }
+        .resize-handle { position: absolute; opacity: 0; transition: opacity 0.2s; z-index: 5; }
         .note:hover .resize-handle { opacity: 1; }
         .resize-handle-right { right: 0; top: 0; width: 8px; height: 100%; cursor: ew-resize; }
         .resize-handle-bottom { bottom: 0; left: 0; width: 100%; height: 8px; cursor: ns-resize; }
-        .resize-handle-corner { right: 0; bottom: 0; width: 12px; height: 12px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, var(--accent) 50%); opacity: 0; transition: opacity 0.2s; }
+        .resize-handle-corner { right: 0; bottom: 0; width: 12px; height: 12px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, var(--accent-custom, var(--accent))) 50%; opacity: 0; transition: opacity 0.2s; }
         .note:hover .resize-handle-corner { opacity: 0.5; }
 
         .delete-btn {
             position: absolute; top: 4px; right: 4px; width: 24px; height: 24px;
-            background: transparent; border: none; color: var(--text); cursor: pointer;
-            opacity: 0; transition: all 0.2s; font-size: 20px; line-height: 1;
+            background: transparent; border: none; 
+            color: var(--text-custom, var(--text)); 
+            cursor: pointer; opacity: 0; transition: all 0.2s; font-size: 20px; line-height: 1;
             border-radius: 4px; z-index: 10; display: flex; align-items: center; justify-content: center;
         }
 
         .note:hover .delete-btn { opacity: 0.5; }
-        .delete-btn:hover { opacity: 1; background: var(--delete); }
+        .delete-btn:hover { opacity: 1; background: var(--delete-custom, var(--delete)); }
+
+        /* --- Color Picker Styles --- */
+        .color-picker {
+            position: absolute;
+            top: 0;
+            left: -32px;
+            width: 32px;
+            padding: 6px 0 10px 0;
+            z-index: 15;
+        }
+        .color-indicator {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid var(--note-bg);
+            cursor: pointer;
+            transition: transform 0.2s;
+            margin: 0 auto;
+        }
+        .color-picker:hover .color-indicator {
+            transform: scale(1.2);
+        }
+        .color-palette {
+            display: none;
+            position: absolute;
+            top: 28px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--note-active);
+            border-radius: 6px;
+            padding: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            flex-direction: column;
+            gap: 6px;
+        }
+        .color-picker:hover .color-palette {
+            display: flex;
+        }
+        .color-swatch {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.2s;
+            border: 1px solid rgba(0,0,0,0.2);
+        }
+        .color-swatch:hover {
+            transform: scale(1.15);
+        }
+        .color-swatch.default {
+            background-image: linear-gradient(45deg, #2a2b2b 50%, #edecec 50%);
+        }
 
         .controls {
             position: fixed; top: 20px; right: 20px; display: flex;
@@ -167,7 +256,6 @@
         }
         body.light-mode .controls { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); }
 
-
         .control-btn {
             background: var(--accent); border: none; color: var(--text); padding: 8px 16px;
             border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;
@@ -175,7 +263,6 @@
         }
         .control-btn:hover { background: #454646; transform: translateY(-1px); }
         body.light-mode .control-btn:hover { background: #d4d4d8; }
-
 
         .format-toolbar {
             position: fixed; background: var(--note-bg); border-radius: 6px; padding: 6px;
@@ -201,7 +288,6 @@
         }
         body.light-mode .instructions { background: rgba(255, 255, 255, 0.9); color: #52525b; }
 
-
         .instructions.hidden { transform: scale(0.95) translateY(20px); opacity: 0; pointer-events: none; }
         .instructions kbd { background: var(--accent); padding: 2px 6px; border-radius: 4px; margin: 0 2px; font-family: monospace; color: var(--text); transition: background 0.3s, color 0.3s;}
 
@@ -216,8 +302,78 @@
         .help-toggle.active { background: #454646; }
         body.light-mode .help-toggle.active { background: #d4d4d8; }
 
-        .note::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAMAAAAp4XiDAAAAUVBMVEWFhYWDg4N3d3dtbW17e3t1dXVpaWl schizophreniaborderline personality disorderdysthymia'); opacity: 0.02; pointer-events: none; }
+        .note::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAMAAAAp4XiDAAAAUVBMVEWFhYWDg4N3d3dtbW17e3t1dXVpaWl6enqMjIx8fHx5eXlzc3NsbGxycnJxcXFmZmZkZGRiYmJgYGB+fn5/f3+AgICBgYGNjY2Ojo6Pj4+QkJC6urq7'); opacity: 0.02; pointer-events: none; }
         body.light-mode .note::before { opacity: 0.05; }
+
+        /* --- Handsontable Integration Styles --- */
+        .spreadsheet-container {
+            flex-grow: 1;
+            position: relative;
+            padding: 8px;
+            overflow: hidden;
+        }
+        
+        /* --- Dark Theme Overrides --- */
+        body:not(.light-mode) .handsontable {
+            color: var(--text-custom, var(--text));
+        }
+        
+        body:not(.light-mode) .ht_master .wtHolder {
+            background-color: var(--note-bg-custom, var(--note-bg));
+        }
+
+        body:not(.light-mode) .handsontable .htCore, 
+        body:not(.light-mode) .handsontable .htCore td, 
+        body:not(.light-mode) .handsontable .htCore th {
+            background-color: var(--note-bg-custom, var(--note-bg)) !important;
+            border-color: var(--accent-custom, var(--accent)) !important;
+            color: var(--text-custom, var(--text)) !important;
+        }
+
+        body:not(.light-mode) .handsontable .htCore th {
+            background-color: var(--note-hover-custom, #353737) !important;
+        }
+        
+        body:not(.light-mode) .handsontable .ht__selection, 
+        body:not(.light-mode) .handsontable .ht__selection--current, 
+        body:not(.light-mode) .handsontable .ht__selection--area {
+            background-color: var(--selection-bg) !important;
+        }
+        
+        body:not(.light-mode) .ht_clone_top .htCore, 
+        body:not(.light-mode) .ht_clone_left .htCore {
+             background-color: var(--accent-custom, var(--accent)) !important;
+        }
+
+        body:not(.light-mode) .handsontableInput {
+            background-color: var(--note-active-custom, var(--note-active)) !important;
+            color: var(--text-custom, var(--text)) !important;
+            box-shadow: 0 0 0 2px var(--editor-border) inset !important;
+        }
+
+        /* --- Light Theme Overrides (to ensure consistency) --- */
+        body.light-mode .handsontable .ht_master .wtHolder {
+            background-color: var(--note-bg-custom, var(--note-bg));
+        }
+
+        body.light-mode .handsontable .htCore,
+        body.light-mode .handsontable .htCore td,
+        body.light-mode .handsontable .htCore th {
+            border-color: var(--accent-custom, var(--accent)) !important;
+            color: var(--text-custom, var(--text)) !important;
+        }
+        body.light-mode .handsontable .htCore th {
+             background-color: var(--note-hover-custom, #f0f0f0) !important;
+        }
+        body.light-mode .handsontableInput {
+            box-shadow: 0 0 0 2px var(--editor-border) inset !important;
+        }
+        
+        /* --- Themed Scrollbars for Handsontable --- */
+        .handsontable .wtHolder::-webkit-scrollbar { width: 10px; height: 10px; }
+        .handsontable .wtHolder::-webkit-scrollbar-track { background: transparent; }
+        .handsontable .wtHolder::-webkit-scrollbar-thumb { background-color: var(--accent-custom, var(--accent)); border-radius: 5px; border: 2px solid var(--note-bg-custom, var(--note-bg)); }
+
     </style>
 </head>
 <body>
@@ -242,7 +398,8 @@
     
     <div class="instructions hidden" id="instructions">
         <strong>Instructions:</strong><br>
-        <kbd>Double-click</kbd> Create note<br>
+        <kbd>Double-click</kbd> Create Text Note<br>
+        <kbd>Ctrl + Dbl-click</kbd> Create Sheet<br>
         <kbd>Drag</kbd> Move note<br>
         <kbd>ESC</kbd> Deselect<br>
         <kbd>DEL</kbd> Delete selected<br>
@@ -257,415 +414,674 @@
     </div>
 
     <script>
-        class StickyNotesApp {
-            constructor() {
-                this.canvas = document.getElementById('canvas');
-                this.notes = [];
-                this.activeNote = null;
-                this.gridSize = 40;
-                this.isDragging = false;
-                this.isResizing = false;
-                this.dragOffset = { x: 0, y: 0 };
-                this.noteIdCounter = 0;
-                
-                this.shiftPressed = false;
-                this.spacePressed = false;
-                this.isPanning = false;
-                this.panStart = { x: 0, y: 0};
-                this.createMode = false;
-                this.createStart = null;
-                this.tempNoteElement = null;
+        document.addEventListener('DOMContentLoaded', function() {
+            class StickyNotesApp {
+                constructor() {
+                    this.canvas = document.getElementById('canvas');
+                    this.notes = [];
+                    this.activeNote = null;
+                    this.gridSize = 40;
+                    this.isDragging = false;
+                    this.isResizing = false;
+                    this.dragOffset = { x: 0, y: 0 };
+                    this.noteIdCounter = 0;
+                    
+                    this.shiftPressed = false;
+                    this.spacePressed = false;
+                    this.ctrlPressed = false;
+                    this.isPanning = false;
+                    this.panStart = { x: 0, y: 0};
+                    this.createMode = false;
+                    this.createStart = null;
+                    this.tempNoteElement = null;
 
-                this.helpVisible = false;
-                this.gridVisible = true;
-                this.formatToolbar = document.getElementById('formatToolbar');
-                this.currentEditor = null;
+                    this.helpVisible = false;
+                    this.gridVisible = true;
+                    this.formatToolbar = document.getElementById('formatToolbar');
+                    this.currentEditor = null;
 
-                this.init();
-            }
+                    this.colorPalette = ['#c77b58', '#79444a', '#77743b', '#8caba1', '#847875', '#d1b187', '#2B4677'];
 
-            init() {
-                this.canvas.addEventListener('dblclick', this.handleCanvasDoubleClick.bind(this));
-                this.canvas.addEventListener('mousedown', this.handleCanvasMouseDown.bind(this));
-                
-                document.addEventListener('mousemove', this.handleDocumentMouseMove.bind(this));
-                document.addEventListener('mouseup', this.handleDocumentMouseUp.bind(this));
-                document.addEventListener('keydown', this.handleKeyDown.bind(this));
-                document.addEventListener('keyup', this.handleKeyUp.bind(this));
-                
-                document.addEventListener('selectionchange', this.handleSelectionChange.bind(this));
+                    this.debouncedSave = this.debounce(this.saveNotes.bind(this), 300);
 
-                this.initControls();
-                this.loadNotes();
-                this.loadTheme();
-
-                this.canvas.scrollLeft = (this.canvas.scrollWidth - this.canvas.clientWidth) / 2;
-                this.canvas.scrollTop = (this.canvas.scrollHeight - this.canvas.clientHeight) / 2;
-            }
-
-            initControls() {
-                const helpToggle = document.getElementById('helpToggle');
-                const instructions = document.getElementById('instructions');
-                helpToggle.addEventListener('click', () => {
-                    this.helpVisible = !this.helpVisible;
-                    instructions.classList.toggle('hidden', !this.helpVisible);
-                    helpToggle.classList.toggle('active', this.helpVisible);
-                });
-
-                document.getElementById('toggleGrid').addEventListener('click', (e) => {
-                    this.gridVisible = !this.gridVisible;
-                    this.canvas.classList.toggle('hide-grid');
-                    e.target.textContent = this.gridVisible ? 'Hide Grid' : 'Show Grid';
-                });
-
-                document.getElementById('clearAll').addEventListener('click', () => {
-                    if (confirm('Clear all notes? This cannot be undone.')) this.clearAll();
-                });
-
-                document.getElementById('themeToggle').addEventListener('click', this.toggleTheme.bind(this));
-
-                this.formatToolbar.addEventListener('mousedown', (e) => e.preventDefault());
-                document.querySelectorAll('.format-btn').forEach(btn => {
-                    btn.addEventListener('click', () => this.applyFormat(btn.dataset.command));
-                });
-            }
-
-            handleDocumentMouseMove(e) {
-                if (this.isPanning) this.panCanvas(e);
-                if (this.createMode) this.resizeTempNote(e);
-                if (this.isDragging) this.dragNote(e);
-                if (this.isResizing) this.resizeNote(e);
-            }
-
-            handleDocumentMouseUp() {
-                if (this.createMode) this.finalizeTempNote();
-                document.body.classList.remove('panning');
-                this.isPanning = false;
-                this.isDragging = false;
-                this.isResizing = false;
-                if (this.activeNote) this.activeNote.element.classList.remove('dragging');
-            }
-
-            handleCanvasMouseDown(e) {
-                if (this.spacePressed) {
-                    this.isPanning = true;
-                    this.panStart.x = e.clientX; this.panStart.y = e.clientY;
-                    document.body.classList.add('panning');
-                    e.preventDefault();
-                } else if (this.shiftPressed && e.target === this.canvas) {
-                    this.startCreateMode(e);
-                } else if (e.target === this.canvas) {
-                    this.deselectAll();
+                    this.init();
                 }
-            }
-            
-            panCanvas(e) {
-                const dx = e.clientX - this.panStart.x;
-                const dy = e.clientY - this.panStart.y;
-                this.canvas.scrollLeft -= dx; this.canvas.scrollTop -= dy;
-                this.panStart.x = e.clientX; this.panStart.y = e.clientY;
-            }
 
-            handleCanvasDoubleClick(e) {
-                if (e.target === this.canvas && !this.shiftPressed) {
+                debounce(func, delay) {
+                    let timeoutId;
+                    return function(...args) {
+                        clearTimeout(timeoutId);
+                        timeoutId = setTimeout(() => func.apply(this, args), delay);
+                    };
+                }
+
+                sanitizeContent(html) {
+                    return DOMPurify.sanitize(html, {
+                        ALLOWED_TAGS: ['b', 'i', 'u', 'strong', 'em', 'span', 'ul', 'li', 'br'],
+                        ALLOWED_ATTR: ['class', 'data-type'],
+                        KEEP_CONTENT: true
+                    });
+                }
+                
+                // --- COLOR HELPER FUNCTIONS ---
+                adjustColor(color, percent) {
+                    let R = parseInt(color.substring(1,3),16);
+                    let G = parseInt(color.substring(3,5),16);
+                    let B = parseInt(color.substring(5,7),16);
+
+                    R = parseInt(R * (100 + percent) / 100);
+                    G = parseInt(G * (100 + percent) / 100);
+                    B = parseInt(B * (100 + percent) / 100);
+
+                    R = (R<255)?R:255;  
+                    G = (G<255)?G:255;  
+                    B = (B<255)?B:255;  
+
+                    const RR = ((R.toString(16).length==1)?"0"+R.toString(16):R.toString(16));
+                    const GG = ((G.toString(16).length==1)?"0"+G.toString(16):G.toString(16));
+                    const BB = ((B.toString(16).length==1)?"0"+B.toString(16):B.toString(16));
+
+                    return "#"+RR+GG+BB;
+                }
+
+                getTextColor(bgColor) {
+                    const r = parseInt(bgColor.substr(1, 2), 16);
+                    const g = parseInt(bgColor.substr(3, 2), 16);
+                    const b = parseInt(bgColor.substr(5, 2), 16);
+                    const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+                    return (yiq >= 128) ? '#000000' : '#ffffff';
+                }
+                
+                init() {
+                    this.canvas.addEventListener('dblclick', this.handleCanvasDoubleClick.bind(this));
+                    this.canvas.addEventListener('mousedown', this.handleCanvasMouseDown.bind(this));
+                    
+                    document.addEventListener('mousemove', this.handleDocumentMouseMove.bind(this));
+                    document.addEventListener('mouseup', this.handleDocumentMouseUp.bind(this));
+                    document.addEventListener('keydown', this.handleKeyDown.bind(this));
+                    document.addEventListener('keyup', this.handleKeyUp.bind(this));
+                    
+                    document.addEventListener('selectionchange', this.handleSelectionChange.bind(this));
+
+                    this.initControls();
+                    this.loadNotes();
+                    this.loadTheme();
+
+                    this.canvas.scrollLeft = (this.canvas.scrollWidth - this.canvas.clientWidth) / 2;
+                    this.canvas.scrollTop = (this.canvas.scrollHeight - this.canvas.clientHeight) / 2;
+                }
+
+                initControls() {
+                    const helpToggle = document.getElementById('helpToggle');
+                    const instructions = document.getElementById('instructions');
+                    helpToggle.addEventListener('click', () => {
+                        this.helpVisible = !this.helpVisible;
+                        instructions.classList.toggle('hidden', !this.helpVisible);
+                        helpToggle.classList.toggle('active', this.helpVisible);
+                    });
+
+                    document.getElementById('toggleGrid').addEventListener('click', (e) => {
+                        this.gridVisible = !this.gridVisible;
+                        this.canvas.classList.toggle('hide-grid');
+                        e.target.textContent = this.gridVisible ? 'Hide Grid' : 'Show Grid';
+                    });
+
+                    document.getElementById('clearAll').addEventListener('click', () => {
+                        if (confirm('Clear all notes? This cannot be undone.')) this.clearAll();
+                    });
+
+                    document.getElementById('themeToggle').addEventListener('click', this.toggleTheme.bind(this));
+
+                    this.formatToolbar.addEventListener('mousedown', (e) => e.preventDefault());
+                    document.querySelectorAll('.format-btn').forEach(btn => {
+                        btn.addEventListener('click', () => this.applyFormat(btn.dataset.command));
+                    });
+                }
+
+                handleDocumentMouseMove(e) {
+                    if (this.isPanning) this.panCanvas(e);
+                    if (this.createMode) this.resizeTempNote(e);
+                    if (this.isDragging) this.dragNote(e);
+                    if (this.isResizing) this.resizeNote(e);
+                }
+
+                handleDocumentMouseUp() {
+                    if (this.createMode) this.finalizeTempNote();
+                    document.body.classList.remove('panning');
+                    this.isPanning = false;
+                    this.isDragging = false;
+                    this.isResizing = false;
+                    if (this.activeNote) this.activeNote.element.classList.remove('dragging');
+                }
+
+                handleCanvasMouseDown(e) {
+                    if (this.spacePressed) {
+                        this.isPanning = true;
+                        this.panStart.x = e.clientX; this.panStart.y = e.clientY;
+                        document.body.classList.add('panning');
+                        e.preventDefault();
+                    } else if (this.shiftPressed && e.target === this.canvas) {
+                        this.startCreateMode(e);
+                    } else if (e.target === this.canvas) {
+                        this.deselectAll();
+                    }
+                }
+                
+                panCanvas(e) {
+                    const dx = e.clientX - this.panStart.x;
+                    const dy = e.clientY - this.panStart.y;
+                    this.canvas.scrollLeft -= dx; this.canvas.scrollTop -= dy;
+                    this.panStart.x = e.clientX; this.panStart.y = e.clientY;
+                }
+
+                handleCanvasDoubleClick(e) {
+                    if (e.target === this.canvas && !this.shiftPressed) {
+                        const rect = this.canvas.getBoundingClientRect();
+                        const x = e.clientX - rect.left + this.canvas.scrollLeft;
+                        const y = e.clientY - rect.top + this.canvas.scrollTop;
+                        const gridX = Math.round(x / this.gridSize) * this.gridSize;
+                        const gridY = Math.round(y / this.gridSize) * this.gridSize;
+                        
+                        const noteType = this.ctrlPressed ? 'spreadsheet' : 'text';
+                        this.createNote({ x: gridX, y: gridY, type: noteType });
+                    }
+                }
+                
+                startCreateMode(e) {
+                    e.preventDefault(); this.createMode = true;
                     const rect = this.canvas.getBoundingClientRect();
                     const x = e.clientX - rect.left + this.canvas.scrollLeft;
                     const y = e.clientY - rect.top + this.canvas.scrollTop;
-                    const gridX = Math.round(x / this.gridSize) * this.gridSize;
-                    const gridY = Math.round(y / this.gridSize) * this.gridSize;
-                    this.createNote({ x: gridX, y: gridY });
+                    this.createStart = {
+                        x: Math.round(x / this.gridSize) * this.gridSize,
+                        y: Math.round(y / this.gridSize) * this.gridSize
+                    };
+                    this.tempNoteElement = document.createElement('div');
+                    this.tempNoteElement.className = 'note';
+                    Object.assign(this.tempNoteElement.style, {
+                        left: `${this.createStart.x}px`, top: `${this.createStart.y}px`,
+                        width: `${this.gridSize}px`, height: `${this.gridSize}px`,
+                        opacity: '0.5', zIndex: this.getMaxZIndex() + 1
+                    });
+                    this.canvas.appendChild(this.tempNoteElement);
                 }
-            }
-            
-            startCreateMode(e) {
-                e.preventDefault(); this.createMode = true;
-                const rect = this.canvas.getBoundingClientRect();
-                const x = e.clientX - rect.left + this.canvas.scrollLeft;
-                const y = e.clientY - rect.top + this.canvas.scrollTop;
-                this.createStart = {
-                    x: Math.round(x / this.gridSize) * this.gridSize,
-                    y: Math.round(y / this.gridSize) * this.gridSize
-                };
-                this.tempNoteElement = document.createElement('div');
-                this.tempNoteElement.className = 'note';
-                Object.assign(this.tempNoteElement.style, {
-                    left: `${this.createStart.x}px`, top: `${this.createStart.y}px`,
-                    width: `${this.gridSize}px`, height: `${this.gridSize}px`,
-                    opacity: '0.5', zIndex: this.getMaxZIndex() + 1
-                });
-                this.canvas.appendChild(this.tempNoteElement);
-            }
 
-            resizeTempNote(e) {
-                const rect = this.canvas.getBoundingClientRect();
-                const currentX = e.clientX - rect.left + this.canvas.scrollLeft;
-                const currentY = e.clientY - rect.top + this.canvas.scrollTop;
-                const left = Math.min(this.createStart.x, currentX);
-                const top = Math.min(this.createStart.y, currentY);
-                const width = Math.abs(currentX - this.createStart.x);
-                const height = Math.abs(currentY - this.createStart.y);
-                this.tempNoteElement.style.left = `${Math.round(left / this.gridSize) * this.gridSize}px`;
-                this.tempNoteElement.style.top = `${Math.round(top / this.gridSize) * this.gridSize}px`;
-                this.tempNoteElement.style.width = `${Math.max(1, Math.round(width / this.gridSize)) * this.gridSize}px`;
-                this.tempNoteElement.style.height = `${Math.max(1, Math.round(height / this.gridSize)) * this.gridSize}px`;
-            }
-            
-            finalizeTempNote() {
-                const { offsetLeft, offsetTop, offsetWidth, offsetHeight } = this.tempNoteElement;
-                this.canvas.removeChild(this.tempNoteElement);
-                this.createNote({
-                    x: offsetLeft, y: offsetTop,
-                    width: Math.max(1, Math.round(offsetWidth / this.gridSize)),
-                    height: Math.max(1, Math.round(offsetHeight / this.gridSize))
-                });
-                this.createMode = false; this.tempNoteElement = null;
-            }
+                resizeTempNote(e) {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const currentX = e.clientX - rect.left + this.canvas.scrollLeft;
+                    const currentY = e.clientY - rect.top + this.canvas.scrollTop;
+                    const left = Math.min(this.createStart.x, currentX);
+                    const top = Math.min(this.createStart.y, currentY);
+                    const width = Math.abs(currentX - this.createStart.x);
+                    const height = Math.abs(currentY - this.createStart.y);
+                    this.tempNoteElement.style.left = `${Math.round(left / this.gridSize) * this.gridSize}px`;
+                    this.tempNoteElement.style.top = `${Math.round(top / this.gridSize) * this.gridSize}px`;
+                    this.tempNoteElement.style.width = `${Math.max(1, Math.round(width / this.gridSize)) * this.gridSize}px`;
+                    this.tempNoteElement.style.height = `${Math.max(1, Math.round(height / this.gridSize)) * this.gridSize}px`;
+                }
+                
+                finalizeTempNote() {
+                    const { offsetLeft, offsetTop, offsetWidth, offsetHeight } = this.tempNoteElement;
+                    this.canvas.removeChild(this.tempNoteElement);
+                    this.createNote({
+                        x: offsetLeft, y: offsetTop,
+                        width: Math.max(1, Math.round(offsetWidth / this.gridSize)),
+                        height: Math.max(1, Math.round(offsetHeight / this.gridSize))
+                    });
+                    this.createMode = false; this.tempNoteElement = null;
+                }
 
-            handleSelectionChange() {
-                if (document.activeElement?.classList.contains('note-editor')) {
-                    const selection = window.getSelection();
-                    if (selection?.toString().length > 0 && !this.isResizing && !this.isDragging) {
-                        const range = selection.getRangeAt(0);
-                        const rect = range.getBoundingClientRect();
-                        this.formatToolbar.style.left = `${rect.left + rect.width / 2 - this.formatToolbar.offsetWidth / 2}px`;
-                        this.formatToolbar.style.top = `${rect.top - this.formatToolbar.offsetHeight - 8}px`;
-                        this.formatToolbar.classList.add('visible');
+                handleSelectionChange() {
+                    if (document.activeElement?.classList.contains('note-editor')) {
+                        const selection = window.getSelection();
+                        if (selection?.toString().length > 0 && !this.isResizing && !this.isDragging) {
+                            const range = selection.getRangeAt(0);
+                            const rect = range.getBoundingClientRect();
+                            this.formatToolbar.style.left = `${rect.left + rect.width / 2 - this.formatToolbar.offsetWidth / 2}px`;
+                            this.formatToolbar.style.top = `${rect.top - this.formatToolbar.offsetHeight - 8}px`;
+                            this.formatToolbar.classList.add('visible');
+                        } else {
+                            this.formatToolbar.classList.remove('visible');
+                        }
                     } else {
                         this.formatToolbar.classList.remove('visible');
                     }
-                } else {
-                    this.formatToolbar.classList.remove('visible');
                 }
-            }
-            
-            handleKeyDown(e) {
-                if (e.key === 'Shift') { this.shiftPressed = true; this.canvas.style.cursor = 'crosshair'; }
-                if (e.key === ' ') {
-                    // --- FIX: Prevent default spacebar action (scrolling) ---
-                    if (!e.target.isContentEditable) {
-                        e.preventDefault();
-                        this.spacePressed = true;
-                        this.canvas.style.cursor = 'grab';
-                    }
-                }
-                if (e.key === 'Escape') this.deselectAll();
-                if (e.key === 'Delete' && this.activeNote && !e.target.isContentEditable) this.deleteNote(this.activeNote);
-
-                if ((e.ctrlKey || e.metaKey) && this.currentEditor) {
-                    if (e.key === 'b') { e.preventDefault(); this.applyFormat('bold'); }
-                    if (e.key === 'i') { e.preventDefault(); this.applyFormat('italic'); }
-                }
-            }
-
-            handleKeyUp(e) {
-                if (e.key === 'Shift') { this.shiftPressed = false; this.canvas.style.cursor = 'default'; }
-                if (e.key === ' ') { this.spacePressed = false; this.canvas.style.cursor = 'default'; }
-            }
-
-            createNote(data) {
-                const note = {
-                    id: data.id || `note-${this.noteIdCounter++}`, x: data.x, y: data.y,
-                    width: data.width || 3, height: data.height || 2,
-                    content: data.content || '', zIndex: data.zIndex || this.getMaxZIndex() + 1
-                };
-                const noteElement = document.createElement('div');
-                noteElement.className = 'note note-spawn';
-                noteElement.id = note.id;
-                Object.assign(noteElement.style, {
-                    left: `${note.x}px`, top: `${note.y}px`,
-                    width: `${note.width * this.gridSize}px`, height: `${note.height * this.gridSize}px`,
-                    zIndex: note.zIndex
-                });
-                noteElement.addEventListener('animationend', () => noteElement.classList.remove('note-spawn'));
-
-                const editor = document.createElement('div');
-                editor.className = 'note-editor';
-                editor.contentEditable = true;
-                editor.innerHTML = note.content;
                 
-                const deleteBtn = document.createElement('button');
-                deleteBtn.className = 'delete-btn';
-                deleteBtn.innerHTML = '×';
-                deleteBtn.onclick = (e) => { e.stopPropagation(); this.deleteNote(note); };
-
-                const resizeRight = document.createElement('div'); resizeRight.className = 'resize-handle resize-handle-right';
-                const resizeBottom = document.createElement('div'); resizeBottom.className = 'resize-handle resize-handle-bottom';
-                const resizeCorner = document.createElement('div'); resizeCorner.className = 'resize-handle resize-handle-corner';
-
-                noteElement.append(editor, deleteBtn, resizeRight, resizeBottom, resizeCorner);
-                this.canvas.appendChild(noteElement);
-                note.element = noteElement; note.editor = editor;
-
-                noteElement.addEventListener('mousedown', (e) => this.handleNoteMouseDown(e, note));
-                editor.addEventListener('keyup', (e) => {
-                    note.content = editor.innerHTML;
-                    if (e.code === 'Space' || e.key === 'Enter') this.processEditorContent(editor);
-                });
-                editor.addEventListener('focus', () => { this.currentEditor = editor; this.selectNote(note); });
-                editor.addEventListener('blur', () => { this.currentEditor = null; this.saveNotes(); });
-                editor.addEventListener('click', (e) => this.handleEditorClick(e, note));
-                editor.addEventListener('mousedown', (e) => e.stopPropagation());
-                
-                resizeRight.addEventListener('mousedown', (e) => this.startResize(e, note, 'horizontal'));
-                resizeBottom.addEventListener('mousedown', (e) => this.startResize(e, note, 'vertical'));
-                resizeCorner.addEventListener('mousedown', (e) => this.startResize(e, note, 'both'));
-                
-                this.notes.push(note);
-                if (!data.id) { this.selectNote(note); editor.focus(); }
-                this.saveNotes();
-                return note;
-            }
-
-            processEditorContent(editor) {
-                const selection = window.getSelection();
-                if (!selection.rangeCount) return;
-                const range = selection.getRangeAt(0);
-                const node = range.startContainer;
-                
-                if(node.nodeType === 3 && node.textContent.match(/^\s*-\s$/)) {
-                    document.execCommand('insertUnorderedList');
-                    node.textContent = node.textContent.replace(/^\s*-\s$/, '');
-                } else if (node.nodeType === 3 && node.textContent.match(/^\s*\[\]\s$/)) {
-                     // --- FIX: Robust checkbox creation ---
-                    document.execCommand('insertUnorderedList');
-                    const listItems = editor.getElementsByTagName('li');
-                    if(listItems.length > 0) {
-                        const newItem = listItems[listItems.length - 1];
-                        if(!newItem.dataset.type) { // Prevent affecting existing items
-                            newItem.dataset.type = 'checkbox';
-                            newItem.innerHTML = newItem.innerHTML.replace('[]', '');
-                            // Set cursor after the checkbox
-                             range.setStart(newItem, 0);
-                             range.collapse(true);
-                             selection.removeAllRanges();
-                             selection.addRange(range);
+                handleKeyDown(e) {
+                    if (e.key === 'Shift') { this.shiftPressed = true; this.canvas.style.cursor = 'crosshair'; }
+                    if (e.key === 'Control' || e.key === 'Meta') { this.ctrlPressed = true; }
+                    if (e.key === ' ') {
+                        if (!e.target.isContentEditable && !e.target.classList.contains('handsontableInput')) {
+                            e.preventDefault();
+                            this.spacePressed = true;
+                            this.canvas.style.cursor = 'grab';
                         }
                     }
-                }
-            }
+                    if (e.key === 'Escape') this.deselectAll();
+                    if (e.key === 'Delete' && this.activeNote && !e.target.isContentEditable && !e.target.closest('.handsontable')) this.deleteNote(this.activeNote);
 
-            handleEditorClick(e, note) {
-                const li = e.target.closest('li[data-type="checkbox"]');
-                if (li) {
-                    const rect = li.getBoundingClientRect();
-                    if (e.clientX < rect.left + 20) {
-                         li.classList.toggle('checked');
-                         note.content = note.editor.innerHTML;
-                         this.saveNotes();
+                    if ((e.ctrlKey || e.metaKey) && this.currentEditor) {
+                        if (e.key === 'b') { e.preventDefault(); this.applyFormat('bold'); }
+                        if (e.key === 'i') { e.preventDefault(); this.applyFormat('italic'); }
                     }
                 }
-            }
-            
-            applyFormat(command) {
-                if (!this.currentEditor) return;
-                this.currentEditor.focus();
-                
-                if (command.startsWith('font-')) {
-                    // --- ENHANCEMENT: Font size logic using span wrapping ---
-                    const className = command;
+
+                handleKeyUp(e) {
+                    if (e.key === 'Shift') { this.shiftPressed = false; this.canvas.style.cursor = 'default'; }
+                    if (e.key === 'Control' || e.key === 'Meta') { this.ctrlPressed = false; }
+                    if (e.key === ' ') { this.spacePressed = false; this.canvas.style.cursor = 'default'; }
+                }
+
+                createNote(data) {
+                    const noteType = data.type || 'text';
+                    const note = {
+                        id: data.id || `note-${this.noteIdCounter++}`, 
+                        x: data.x, 
+                        y: data.y,
+                        width: data.width || (noteType === 'spreadsheet' ? 8 : 4), 
+                        height: data.height || (noteType === 'spreadsheet' ? 4 : 3),
+                        type: noteType,
+                        color: data.color || null,
+                        content: data.content || '',
+                        spreadsheetData: data.spreadsheetData || null,
+                        instance: null,
+                        zIndex: data.zIndex || this.getMaxZIndex() + 1
+                    };
+                    
+                    const noteElement = document.createElement('div');
+                    noteElement.className = 'note note-spawn';
+                    noteElement.id = note.id;
+                    Object.assign(noteElement.style, {
+                        left: `${note.x}px`, top: `${note.y}px`,
+                        width: `${note.width * this.gridSize}px`, height: `${note.height * this.gridSize}px`,
+                        zIndex: note.zIndex
+                    });
+                    noteElement.addEventListener('animationend', () => noteElement.classList.remove('note-spawn'));
+
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.className = 'delete-btn';
+                    deleteBtn.innerHTML = '×';
+                    deleteBtn.onclick = (e) => { e.stopPropagation(); this.deleteNote(note); };
+
+                    const resizeRight = document.createElement('div'); resizeRight.className = 'resize-handle resize-handle-right';
+                    const resizeBottom = document.createElement('div'); resizeBottom.className = 'resize-handle resize-handle-bottom';
+                    const resizeCorner = document.createElement('div'); resizeCorner.className = 'resize-handle resize-handle-corner';
+
+                    const colorPicker = this.createColorPicker(note);
+
+                    note.element = noteElement;
+
+                    if (noteType === 'spreadsheet') {
+                        const spreadsheetContainer = document.createElement('div');
+                        spreadsheetContainer.className = 'spreadsheet-container';
+                        noteElement.append(colorPicker, spreadsheetContainer, deleteBtn, resizeRight, resizeBottom, resizeCorner);
+                        this.canvas.appendChild(noteElement);
+                        
+                        note.instance = new Handsontable(spreadsheetContainer, {
+                            data: note.spreadsheetData, startRows: 5, startCols: 5, rowHeaders: true, colHeaders: true,
+                            height: '100%', width: '100%', stretchH: 'all',
+                            formulas: { engine: HyperFormula }, licenseKey: 'non-commercial-and-evaluation'
+                        });
+
+                        note.instance.addHook('afterChange', () => {
+                            note.spreadsheetData = note.instance.getData();
+                            this.debouncedSave();
+                        });
+
+                    } else { // Text note
+                        const editor = document.createElement('div');
+                        editor.className = 'note-editor';
+                        editor.contentEditable = true;
+                        editor.innerHTML = this.sanitizeContent(note.content);
+                        noteElement.append(colorPicker, editor, deleteBtn, resizeRight, resizeBottom, resizeCorner);
+                        this.canvas.appendChild(noteElement);
+                        note.editor = editor;
+
+                        editor.addEventListener('keyup', (e) => {
+                            note.content = this.sanitizeContent(editor.innerHTML);
+                            if (e.code === 'Space' || e.key === 'Enter') this.processEditorContent(editor);
+                            this.debouncedSave();
+                        });
+                        editor.addEventListener('focus', () => { this.currentEditor = editor; this.selectNote(note); });
+                        editor.addEventListener('blur', () => { this.currentEditor = null; this.saveNotes(); });
+                        editor.addEventListener('click', (e) => this.handleEditorClick(e, note));
+                        editor.addEventListener('mousedown', (e) => e.stopPropagation());
+                    }
+
+                    if (note.color) {
+                        this.changeNoteColor(note, note.color, false);
+                    } else {
+                        // Set initial indicator color for default notes
+                        const indicator = note.element.querySelector('.color-indicator');
+                        if (indicator) {
+                           indicator.style.background = 'var(--accent)';
+                        }
+                    }
+
+                    noteElement.addEventListener('mousedown', (e) => this.handleNoteMouseDown(e, note));
+                    resizeRight.addEventListener('mousedown', (e) => this.startResize(e, note, 'horizontal'));
+                    resizeBottom.addEventListener('mousedown', (e) => this.startResize(e, note, 'vertical'));
+                    resizeCorner.addEventListener('mousedown', (e) => this.startResize(e, note, 'both'));
+                    
+                    this.notes.push(note);
+                    if (!data.id) { 
+                        this.selectNote(note); 
+                        if (note.editor) note.editor.focus();
+                        this.saveNotes();
+                    }
+                    return note;
+                }
+
+                createColorPicker(note) {
+                    const picker = document.createElement('div');
+                    picker.className = 'color-picker';
+
+                    const indicator = document.createElement('div');
+                    indicator.className = 'color-indicator';
+                    
+                    const palette = document.createElement('div');
+                    palette.className = 'color-palette';
+                    
+                    const defaultSwatch = document.createElement('div');
+                    defaultSwatch.className = 'color-swatch default';
+                    defaultSwatch.title = 'Revert to theme color';
+                    defaultSwatch.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this.changeNoteColor(note, null);
+                    });
+                    palette.appendChild(defaultSwatch);
+
+                    this.colorPalette.forEach(color => {
+                        const swatch = document.createElement('div');
+                        swatch.className = 'color-swatch';
+                        swatch.style.backgroundColor = color;
+                        swatch.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            this.changeNoteColor(note, color);
+                        });
+                        palette.appendChild(swatch);
+                    });
+
+                    picker.append(indicator, palette);
+                    return picker;
+                }
+
+                changeNoteColor(note, color, save = true) {
+                    note.color = color;
+                    const indicator = note.element.querySelector('.color-indicator');
+
+                    if (color) {
+                        const textColor = this.getTextColor(color);
+                        note.element.style.setProperty('--note-bg-custom', color);
+                        note.element.style.setProperty('--note-hover-custom', this.adjustColor(color, -10));
+                        note.element.style.setProperty('--note-active-custom', this.adjustColor(color, -15));
+                        note.element.style.setProperty('--accent-custom', this.adjustColor(color, 20));
+                        note.element.style.setProperty('--delete-custom', this.adjustColor(color, -5));
+                        note.element.style.setProperty('--text-custom', textColor);
+                        indicator.style.background = color;
+                    } else {
+                        note.element.style.removeProperty('--note-bg-custom');
+                        note.element.style.removeProperty('--note-hover-custom');
+                        note.element.style.removeProperty('--note-active-custom');
+                        note.element.style.removeProperty('--accent-custom');
+                        note.element.style.removeProperty('--delete-custom');
+                        note.element.style.removeProperty('--text-custom');
+                        indicator.style.background = 'var(--accent)';
+                    }
+                    
+                    if (note.instance) note.instance.render();
+                    if (save) this.saveNotes();
+                }
+
+                processEditorContent(editor) {
                     const selection = window.getSelection();
                     if (!selection.rangeCount) return;
                     const range = selection.getRangeAt(0);
-                    const selectedText = range.toString();
-                    if (selectedText) {
+                    const node = range.startContainer;
+
+                    if (node.nodeType !== 3) return;
+
+                    const bulletMatch = node.textContent.match(/-\s+$/);
+                    if (bulletMatch) {
+                        const matchStr = bulletMatch[0]; // e.g., "-   "
+                        range.setStart(node, node.length - matchStr.length);
+                        range.setEnd(node, node.length);
+                        range.deleteContents(); // Delete them
+                        document.execCommand('insertUnorderedList');
+                        return;
+                    }
+
+                    if (node.textContent.match(/\[\]\s$/)) {
+                        range.setStart(node, node.textContent.lastIndexOf('[]'));
+                        range.deleteContents();
+                        document.execCommand('insertUnorderedList');
+
+                        const listItems = Array.from(editor.querySelectorAll('li'));
+                        const currentListItem = listItems.find(li => li.contains(node) || li === node);
+
+                        if (currentListItem && !currentListItem.dataset.type) {
+                            currentListItem.dataset.type = 'checkbox';
+                        } else {
+                            const lastLi = listItems[listItems.length - 1];
+                            if (lastLi && !lastLi.dataset.type) {
+                                lastLi.dataset.type = 'checkbox';
+                            }
+                        }
+                    }
+                }
+
+                handleEditorClick(e, note) {
+                    const li = e.target.closest('li[data-type="checkbox"]');
+                    if (li) {
+                        const rect = li.getBoundingClientRect();
+                        if (e.clientX < rect.left + 20) {
+                             li.classList.toggle('checked');
+                             note.content = this.sanitizeContent(note.editor.innerHTML);
+                             this.saveNotes();
+                        }
+                    }
+                }
+                
+                applyFormat(command) {
+                    if (!this.currentEditor) return;
+                    this.currentEditor.focus();
+                    
+                    if (command.startsWith('font-')) {
+                        const className = command;
+                        const selection = window.getSelection();
+                        if (!selection.rangeCount) return;
+                        const range = selection.getRangeAt(0);
+                        
+                        const selectedContents = range.extractContents();
                         const span = document.createElement('span');
                         span.className = className;
-                        span.textContent = selectedText;
-                        range.deleteContents();
+                        span.appendChild(selectedContents);
                         range.insertNode(span);
+                        selection.removeAllRanges();
+
+                    } else {
+                        document.execCommand(command, false, null);
                     }
-                } else {
-                    document.execCommand(command, false, null);
+
+                    const note = this.notes.find(n => n.editor === this.currentEditor);
+                    if (note) {
+                        note.content = this.sanitizeContent(this.currentEditor.innerHTML);
+                        this.saveNotes();
+                    }
                 }
 
-                this.notes.find(n => n.editor === this.currentEditor).content = this.currentEditor.innerHTML;
-                this.saveNotes();
-            }
-
-            handleNoteMouseDown(e, note) {
-                if (e.target.isContentEditable || e.target.closest('.resize-handle, .delete-btn')) return;
-                e.preventDefault(); this.selectNote(note);
-                this.isDragging = true; this.activeNote = note;
-                const rect = note.element.getBoundingClientRect();
-                this.dragOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-                note.element.classList.add('dragging');
-            }
-
-            dragNote(e) {
-                const canvasRect = this.canvas.getBoundingClientRect();
-                let newX = e.clientX - canvasRect.left - this.dragOffset.x + this.canvas.scrollLeft;
-                let newY = e.clientY - canvasRect.top - this.dragOffset.y + this.canvas.scrollTop;
-                newX = Math.max(0, Math.round(newX / this.gridSize) * this.gridSize);
-                newY = Math.max(0, Math.round(newY / this.gridSize) * this.gridSize);
-                this.activeNote.element.style.left = `${newX}px`;
-                this.activeNote.element.style.top = `${newY}px`;
-                this.activeNote.x = newX; this.activeNote.y = newY;
-                this.saveNotes();
-            }
-
-            startResize(e, note, direction) {
-                e.preventDefault(); e.stopPropagation();
-                this.isResizing = true; this.activeNote = note;
-                this.resizeDirection = direction;
-                this.resizeStart = {
-                    x: e.clientX, y: e.clientY,
-                    width: note.element.offsetWidth, height: note.element.offsetHeight
-                };
-            }
-
-            resizeNote(e) {
-                if (this.resizeDirection === 'horizontal' || this.resizeDirection === 'both') {
-                    const newWidth = Math.max(this.gridSize, Math.round((this.resizeStart.width + e.clientX - this.resizeStart.x) / this.gridSize) * this.gridSize);
-                    this.activeNote.element.style.width = `${newWidth}px`;
-                    this.activeNote.width = newWidth / this.gridSize;
+                handleNoteMouseDown(e, note) {
+                    if (e.target.isContentEditable || e.target.closest('.resize-handle, .delete-btn, .handsontable, .color-picker')) return;
+                    e.preventDefault(); this.selectNote(note);
+                    this.isDragging = true; this.activeNote = note;
+                    const rect = note.element.getBoundingClientRect();
+                    this.dragOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+                    note.element.classList.add('dragging');
                 }
-                if (this.resizeDirection === 'vertical' || this.resizeDirection === 'both') {
-                    const newHeight = Math.max(this.gridSize, Math.round((this.resizeStart.height + e.clientY - this.resizeStart.y) / this.gridSize) * this.gridSize);
-                    this.activeNote.element.style.height = `${newHeight}px`;
-                    this.activeNote.height = newHeight / this.gridSize;
-                }
-                this.saveNotes();
-            }
 
-            selectNote(note) { this.deselectAll(); this.activeNote = note; note.element.classList.add('active'); note.zIndex = this.getMaxZIndex() + 1; note.element.style.zIndex = note.zIndex; }
-            deselectAll() { document.querySelectorAll('.note.active').forEach(n => n.classList.remove('active')); this.activeNote = null; }
-            deleteNote(note) { note.element.remove(); this.notes = this.notes.filter(n => n.id !== note.id); this.activeNote = null; this.saveNotes(); }
-            clearAll() { this.notes.forEach(note => note.element.remove()); this.notes = []; this.activeNote = null; this.saveNotes(); }
-            getMaxZIndex() { return this.notes.length > 0 ? Math.max(...this.notes.map(n => n.zIndex || 0)) : 0; }
+                dragNote(e) {
+                    const canvasRect = this.canvas.getBoundingClientRect();
+                    let newX = e.clientX - canvasRect.left - this.dragOffset.x + this.canvas.scrollLeft;
+                    let newY = e.clientY - canvasRect.top - this.dragOffset.y + this.canvas.scrollTop;
+                    newX = Math.max(0, Math.round(newX / this.gridSize) * this.gridSize);
+                    newY = Math.max(0, Math.round(newY / this.gridSize) * this.gridSize);
+                    this.activeNote.element.style.left = `${newX}px`;
+                    this.activeNote.element.style.top = `${newY}px`;
+                    this.activeNote.x = newX; this.activeNote.y = newY;
+                    this.debouncedSave();
+                }
 
-            saveNotes() {
-                const notesData = this.notes.map(note => ({
-                    id: note.id, x: note.x, y: note.y,
-                    width: note.width, height: note.height,
-                    content: note.content, zIndex: note.zIndex
-                }));
-                localStorage.setItem('stickyNotesApp', JSON.stringify(notesData));
-            }
-            loadNotes() {
-                const savedNotes = localStorage.getItem('stickyNotesApp');
-                if (savedNotes) {
-                    try {
-                        const notesData = JSON.parse(savedNotes);
-                        if (Array.isArray(notesData)) notesData.forEach(noteData => this.createNote(noteData));
-                    } catch(e) { console.error('Failed to load notes:', e); }
+                startResize(e, note, direction) {
+                    e.preventDefault(); e.stopPropagation();
+                    this.isResizing = true; this.activeNote = note;
+                    this.resizeDirection = direction;
+                    this.resizeStart = {
+                        x: e.clientX, y: e.clientY,
+                        width: note.element.offsetWidth, height: note.element.offsetHeight
+                    };
                 }
-                this.deselectAll();
-            }
-            toggleTheme() {
-                document.body.classList.toggle('light-mode');
-                const isLight = document.body.classList.contains('light-mode');
-                localStorage.setItem('stickyNotesTheme', isLight ? 'light' : 'dark');
-                document.getElementById('themeToggle').textContent = isLight ? 'Dark Mode' : 'Light Mode';
-            }
-            loadTheme() {
-                const theme = localStorage.getItem('stickyNotesTheme');
-                if (theme === 'light') {
-                    document.body.classList.add('light-mode');
-                    document.getElementById('themeToggle').textContent = 'Dark Mode';
+
+                resizeNote(e) {
+                    const oldWidthInGridUnits = this.activeNote.width;
+                    const oldHeightInGridUnits = this.activeNote.height;
+
+                    let newWidthInGridUnits = oldWidthInGridUnits;
+                    let newHeightInGridUnits = oldHeightInGridUnits;
+
+                    if (this.resizeDirection === 'horizontal' || this.resizeDirection === 'both') {
+                        const newWidth = Math.max(this.gridSize * 3, Math.round((this.resizeStart.width + e.clientX - this.resizeStart.x) / this.gridSize) * this.gridSize);
+                        this.activeNote.element.style.width = `${newWidth}px`;
+                        newWidthInGridUnits = newWidth / this.gridSize;
+                        this.activeNote.width = newWidthInGridUnits;
+                    }
+                    if (this.resizeDirection === 'vertical' || this.resizeDirection === 'both') {
+                        const newHeight = Math.max(this.gridSize * 3, Math.round((this.resizeStart.height + e.clientY - this.resizeStart.y) / this.gridSize) * this.gridSize);
+                        this.activeNote.element.style.height = `${newHeight}px`;
+                        newHeightInGridUnits = newHeight / this.gridSize;
+                        this.activeNote.height = newHeightInGridUnits;
+                    }
+
+                    if (this.activeNote.type === 'spreadsheet' && this.activeNote.instance) {
+                        const colsToAdd = newWidthInGridUnits - oldWidthInGridUnits;
+                        const rowsToAdd = newHeightInGridUnits - oldHeightInGridUnits;
+
+                        if (colsToAdd > 0) {
+                            this.activeNote.instance.alter('insert_col_end', null, colsToAdd);
+                        } else if (colsToAdd < 0) {
+                             this.activeNote.instance.alter('remove_col', null, -colsToAdd, 'shrink');
+                        }
+
+                        if (rowsToAdd > 0) {
+                             this.activeNote.instance.alter('insert_row_below', null, rowsToAdd);
+                        } else if (rowsToAdd < 0) {
+                            this.activeNote.instance.alter('remove_row', null, -rowsToAdd, 'shrink');
+                        }
+
+                        this.activeNote.instance.render();
+                    }
+                    
+                    this.debouncedSave();
+                }
+
+                selectNote(note) { 
+                    this.deselectAll(); 
+                    this.activeNote = note; 
+                    note.element.classList.add('active'); 
+                    note.zIndex = this.getMaxZIndex() + 1; 
+                    note.element.style.zIndex = note.zIndex; 
+                }
+                
+                deselectAll() { 
+                    document.querySelectorAll('.note.active').forEach(n => n.classList.remove('active')); 
+                    this.activeNote = null; 
+                }
+                
+                deleteNote(note) { 
+                    if(note.type === 'spreadsheet' && note.instance) {
+                        note.instance.destroy();
+                    }
+                    note.element.remove(); 
+                    this.notes = this.notes.filter(n => n.id !== note.id); 
+                    this.activeNote = null; 
+                    this.saveNotes(); 
+                }
+                
+                clearAll() { 
+                    this.notes.forEach(note => {
+                        if(note.type === 'spreadsheet' && note.instance) {
+                            note.instance.destroy();
+                        }
+                        note.element.remove()
+                    }); 
+                    this.notes = []; 
+                    this.activeNote = null; 
+                    this.saveNotes(); 
+                }
+                
+                getMaxZIndex() { 
+                    return this.notes.length > 0 ? Math.max(...this.notes.map(n => n.zIndex || 0)) : 0; 
+                }
+
+                saveNotes() {
+                    const notesData = this.notes.map(note => {
+                        const noteData = {
+                            id: note.id, x: note.x, y: note.y,
+                            width: note.width, height: note.height,
+                            type: note.type, zIndex: note.zIndex,
+                            color: note.color
+                        };
+                        
+                        if (note.type === 'spreadsheet') {
+                            noteData.spreadsheetData = note.instance.getData();
+                        } else {
+                            noteData.content = note.content;
+                        }
+                        return noteData;
+                    });
+                    localStorage.setItem('stickyNotesApp', JSON.stringify(notesData));
+                }
+                
+                loadNotes() {
+                    const savedNotes = localStorage.getItem('stickyNotesApp');
+                    if (savedNotes) {
+                        try {
+                            const notesData = JSON.parse(savedNotes);
+                            if (Array.isArray(notesData)) {
+                                this.noteIdCounter = notesData.length ? Math.max(...notesData.map(n => parseInt(n.id.split('-')[1]) || 0)) + 1 : 0;
+                                notesData.forEach(noteData => this.createNote(noteData));
+                            }
+                        } catch(e) { 
+                            console.error('Failed to load notes:', e); 
+                        }
+                    }
+                    this.deselectAll();
+                }
+                
+                toggleTheme() {
+                    document.body.classList.toggle('light-mode');
+                    const isLight = document.body.classList.contains('light-mode');
+                    localStorage.setItem('stickyNotesTheme', isLight ? 'light' : 'dark');
+                    document.getElementById('themeToggle').textContent = isLight ? 'Dark Mode' : 'Light Mode';
+                    
+                    this.notes.forEach(note => {
+                        if (note.type === 'spreadsheet' && note.instance) {
+                            note.instance.render();
+                        }
+                    });
+                }
+                
+                loadTheme() {
+                    const theme = localStorage.getItem('stickyNotesTheme');
+                    if (theme === 'light') {
+                        document.body.classList.add('light-mode');
+                        document.getElementById('themeToggle').textContent = 'Dark Mode';
+                    }
                 }
             }
-        }
-        const app = new StickyNotesApp();
+            
+            new StickyNotesApp();
+        });
     </script>
 </body>
 </html>
